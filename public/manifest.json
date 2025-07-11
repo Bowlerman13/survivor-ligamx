@@ -1,0 +1,86 @@
+{
+  "name": "SurvivorMx - Liga MX Survivor",
+  "short_name": "SurvivorMx",
+  "description": "Competencia de supervivencia de Liga MX. ¡Sobrevive hasta el final!",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#16a34a",
+  "orientation": "portrait-primary",
+  "scope": "/",
+  "lang": "es-MX",
+  "categories": ["sports", "games", "entertainment"],
+  "icons": [
+    {
+      "src": "/android-chrome-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/android-chrome-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    },
+    {
+      "src": "/favicon-32x32.png",
+      "sizes": "32x32",
+      "type": "image/png"
+    },
+    {
+      "src": "/favicon-16x16.png",
+      "sizes": "16x16",
+      "type": "image/png"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/screenshot-mobile.png",
+      "sizes": "390x844",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Vista móvil de SurvivorMx"
+    },
+    {
+      "src": "/screenshot-desktop.png",
+      "sizes": "1280x720",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Vista de escritorio de SurvivorMx"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Hacer Selección",
+      "short_name": "Selección",
+      "description": "Selecciona tu equipo para la jornada actual",
+      "url": "/?tab=select",
+      "icons": [
+        {
+          "src": "/shortcut-select.png",
+          "sizes": "96x96",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Ver Clasificación",
+      "short_name": "Ranking",
+      "description": "Consulta la clasificación actual",
+      "url": "/?tab=leaderboard",
+      "icons": [
+        {
+          "src": "/shortcut-leaderboard.png",
+          "sizes": "96x96",
+          "type": "image/png"
+        }
+      ]
+    }
+  ]
+}
