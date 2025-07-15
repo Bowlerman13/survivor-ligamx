@@ -35,7 +35,14 @@ export async function GET(request: NextRequest) {
       ORDER BY mw.week_number DESC, m.match_date ASC
     `
 
-    return NextResponse.json(matches)
+    // Headers para evitar caché
+    const response = NextResponse.json(matches)
+    response.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate")
+    response.headers.set("Pragma", "no-cache")
+    response.headers.set("Expires", "0")
+    response.headers.set("Surrogate-Control", "no-store")
+
+    return response
   } catch (error) {
     console.error("Error obteniendo partidos:", error)
     return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 })
@@ -57,6 +64,8 @@ export async function PUT(request: NextRequest) {
 
     const { matchId, homeScore, awayScore } = await request.json()
     const mexicoTime = getCurrentMexicoTime()
+
+    console.log(`🔄 Actualizando resultado: Match ${matchId} - ${homeScore}:${awayScore} at ${mexicoTime}`)
 
     // Actualizar resultado del partido con horario de Ciudad de México
     await sql`
@@ -85,6 +94,9 @@ export async function PUT(request: NextRequest) {
       WHERE match_id = ${matchId}
     `
 
+    console.log(`📊 Procesando ${selections.length} selecciones para el partido ${matchId}`)
+
+    let eliminatedUsers = 0
     for (const selection of selections) {
       const result = getMatchResult(homeScore, awayScore, selection.team_id, home_team_id)
       const isCorrect = result === "win" || result === "draw"
@@ -105,10 +117,24 @@ export async function PUT(request: NextRequest) {
               updated_at = ${mexicoTime}::timestamp
           WHERE id = ${selection.user_id}
         `
+        eliminatedUsers++
       }
     }
 
-    return NextResponse.json({ success: true })
+    console.log(`✅ Resultado actualizado: ${eliminatedUsers} usuarios eliminados`)
+
+    // Respuesta sin caché
+    const response = NextResponse.json({
+      success: true,
+      message: `Resultado actualizado. ${eliminatedUsers} usuarios eliminados.`,
+      timestamp: mexicoTime,
+    })
+
+    response.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate")
+    response.headers.set("Pragma", "no-cache")
+    response.headers.set("Expires", "0")
+
+    return response
   } catch (error) {
     console.error("Error actualizando resultado:", error)
     return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 })
