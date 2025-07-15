@@ -1,9 +1,10 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Loader2, Trophy, Crown, Medal, Award, ChevronDown, ChevronUp } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Loader2, Trophy, Crown, Medal, Award, ChevronDown, ChevronUp, RefreshCw, Clock } from "lucide-react"
 import { formatDateTime } from "@/lib/utils"
 
 interface TeamSelection {
@@ -15,6 +16,7 @@ interface TeamSelection {
   result: string
   is_correct: boolean | null
   created_at: string
+  updated_at: string
 }
 
 interface LeaderboardEntry {
@@ -22,18 +24,27 @@ interface LeaderboardEntry {
   name: string
   email: string
   is_eliminated: boolean
+  user_updated_at: string
   selections: TeamSelection[]
   correct_selections: number
   total_selections: number
   last_week_survived: number
 }
 
+interface LeaderboardResponse {
+  data: LeaderboardEntry[]
+  timestamp: string
+  count: number
+}
+
 export function DetailedLeaderboard() {
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState("")
   const [expandedUser, setExpandedUser] = useState<string | null>(null)
   const [isMobile, setIsMobile] = useState(false)
+  const [lastUpdate, setLastUpdate] = useState<string>("")
 
   useEffect(() => {
     loadDetailedLeaderboard()
@@ -46,24 +57,59 @@ export function DetailedLeaderboard() {
     checkMobile()
     window.addEventListener("resize", checkMobile)
 
-    return () => window.removeEventListener("resize", checkMobile)
+    // Auto-refresh cada 30 segundos
+    const interval = setInterval(() => {
+      loadDetailedLeaderboard(true)
+    }, 30000)
+
+    return () => {
+      window.removeEventListener("resize", checkMobile)
+      clearInterval(interval)
+    }
   }, [])
 
-  const loadDetailedLeaderboard = async () => {
+  const loadDetailedLeaderboard = useCallback(async (isAutoRefresh = false) => {
+    if (!isAutoRefresh) {
+      setLoading(true)
+    } else {
+      setRefreshing(true)
+    }
+    setError("")
+
     try {
-      const response = await fetch("/api/leaderboard-detailed")
+      console.log("🔄 Cargando leaderboard detallado...")
+
+      // Agregar timestamp para evitar caché
+      const timestamp = new Date().getTime()
+      const response = await fetch(`/api/leaderboard-detailed?t=${timestamp}`, {
+        method: "GET",
+        headers: {
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+          Pragma: "no-cache",
+          Expires: "0",
+        },
+      })
 
       if (response.ok) {
-        const data = await response.json()
-        setLeaderboard(data)
+        const result: LeaderboardResponse = await response.json()
+        console.log(`✅ Leaderboard cargado: ${result.count} usuarios at ${result.timestamp}`)
+
+        setLeaderboard(result.data)
+        setLastUpdate(result.timestamp)
       } else {
         throw new Error("Error cargando clasificación detallada")
       }
     } catch (err: any) {
+      console.error("❌ Error cargando leaderboard:", err)
       setError(err.message)
     } finally {
       setLoading(false)
+      setRefreshing(false)
     }
+  }, [])
+
+  const handleManualRefresh = () => {
+    loadDetailedLeaderboard()
   }
 
   // Función para calcular puntos de un usuario
@@ -154,6 +200,7 @@ export function DetailedLeaderboard() {
       <Card>
         <CardContent className="flex items-center justify-center p-8">
           <Loader2 className="h-8 w-8 animate-spin" />
+          <span className="ml-2">Cargando clasificación...</span>
         </CardContent>
       </Card>
     )
@@ -162,7 +209,13 @@ export function DetailedLeaderboard() {
   if (error) {
     return (
       <Alert variant="destructive">
-        <AlertDescription>{error}</AlertDescription>
+        <AlertDescription>
+          {error}
+          <Button variant="outline" size="sm" onClick={handleManualRefresh} className="ml-2 bg-transparent">
+            <RefreshCw className="h-4 w-4 mr-1" />
+            Reintentar
+          </Button>
+        </AlertDescription>
       </Alert>
     )
   }
@@ -171,6 +224,27 @@ export function DetailedLeaderboard() {
   if (isMobile) {
     return (
       <div className="space-y-4">
+        {/* Header con refresh */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Trophy className="h-5 w-5 text-green-600" />
+            <span className="font-semibold">Clasificación Detallada</span>
+            {refreshing && <Loader2 className="h-4 w-4 animate-spin" />}
+          </div>
+          <Button variant="outline" size="sm" onClick={handleManualRefresh} disabled={refreshing}>
+            <RefreshCw className={`h-4 w-4 mr-1 ${refreshing ? "animate-spin" : ""}`} />
+            Actualizar
+          </Button>
+        </div>
+
+        {/* Timestamp de última actualización */}
+        {lastUpdate && (
+          <div className="text-xs text-gray-500 flex items-center gap-1">
+            <Clock className="h-3 w-3" />
+            Última actualización: {formatDateTime(lastUpdate)} (CDMX)
+          </div>
+        )}
+
         {/* Supervivientes */}
         <Card>
           <CardHeader className="pb-3">
@@ -409,9 +483,30 @@ export function DetailedLeaderboard() {
     )
   }
 
-  // Vista desktop (código original)
+  // Vista desktop (código original con mejoras)
   return (
     <div className="space-y-6">
+      {/* Header con refresh */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Trophy className="h-5 w-5 text-green-600" />
+          <span className="font-semibold">Clasificación Detallada</span>
+          {refreshing && <Loader2 className="h-4 w-4 animate-spin" />}
+        </div>
+        <Button variant="outline" size="sm" onClick={handleManualRefresh} disabled={refreshing}>
+          <RefreshCw className={`h-4 w-4 mr-1 ${refreshing ? "animate-spin" : ""}`} />
+          Actualizar
+        </Button>
+      </div>
+
+      {/* Timestamp de última actualización */}
+      {lastUpdate && (
+        <div className="text-xs text-gray-500 flex items-center gap-1">
+          <Clock className="h-3 w-3" />
+          Última actualización: {formatDateTime(lastUpdate)} (CDMX)
+        </div>
+      )}
+
       {/* Supervivientes */}
       <Card>
         <CardHeader>
@@ -420,7 +515,8 @@ export function DetailedLeaderboard() {
             Supervivientes ({survivors.length})
           </CardTitle>
           <CardDescription>
-            Jugadores activos de la ultima jornada vivos
+            Jugadores activos ordenados por: 1) Última jornada viva, 2) Puntos totales, 3) Selecciones correctas
+            (Horario de Ciudad de México)
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -516,7 +612,10 @@ export function DetailedLeaderboard() {
                           {selection && (
                             <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-black text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity z-10 whitespace-nowrap">
                               <div>{selection.team_name}</div>
-                              <div>{formatDateTime(selection.created_at)} PST</div>
+                              <div>{formatDateTime(selection.created_at)} CDMX</div>
+                              {selection.updated_at !== selection.created_at && (
+                                <div className="text-blue-300">Mod: {formatDateTime(selection.updated_at)}</div>
+                              )}
                               <div className="text-center">
                                 {selection.result === "pending"
                                   ? "Pendiente"
@@ -637,7 +736,10 @@ export function DetailedLeaderboard() {
                           {selection && (
                             <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-black text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity z-10 whitespace-nowrap">
                               <div>{selection.team_name}</div>
-                              <div>{formatDateTime(selection.created_at)} PST</div>
+                              <div>{formatDateTime(selection.created_at)} CDMX</div>
+                              {selection.updated_at !== selection.created_at && (
+                                <div className="text-blue-300">Mod: {formatDateTime(selection.updated_at)}</div>
+                              )}
                               <div className="text-center">
                                 {selection.result === "pending"
                                   ? "Pendiente"
@@ -714,6 +816,9 @@ export function DetailedLeaderboard() {
               </li>
               <li>
                 <strong>Puntuación:</strong> Victoria = 3 pts, Empate = 1 pt, Derrota = 0 pts
+              </li>
+              <li>
+                <strong>Actualización:</strong> Los datos se actualizan automáticamente cada 30 segundos
               </li>
             </ul>
           </div>
