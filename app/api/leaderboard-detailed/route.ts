@@ -1,9 +1,14 @@
 import { NextResponse } from "next/server"
 import { sql } from "@/lib/db"
 
+export const dynamic = "force-dynamic"
+export const revalidate = 0
+export const fetchCache = "force-no-store"
+export const runtime = "nodejs"
+
 export async function GET() {
   try {
-    console.log("🔄 Cargando leaderboard detallado...")
+    console.log("🔄 [LEADERBOARD] Cargando leaderboard detallado desde DB...")
 
     // Obtener todos los usuarios con sus selecciones detalladas
     const leaderboardData = await sql`
@@ -45,23 +50,37 @@ export async function GET() {
         total_selections DESC
     `
 
-    console.log(`📊 Leaderboard cargado: ${leaderboardData.length} usuarios`)
+    console.log(`📊 [LEADERBOARD] Leaderboard cargado: ${leaderboardData.length} usuarios`)
 
-    // Respuesta sin caché con timestamp
+    // Respuesta sin caché con información adicional
     const response = NextResponse.json({
       data: leaderboardData,
       timestamp: new Date().toISOString(),
       count: leaderboardData.length,
+      cache_buster: Math.random().toString(36).substring(7),
+      server_info: {
+        env: process.env.NODE_ENV,
+        region: process.env.VERCEL_REGION || "unknown",
+        deployment_id: process.env.VERCEL_DEPLOYMENT_ID || "local",
+      },
     })
 
-    response.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate")
+    // Headers anti-caché extremos para Vercel
+    response.headers.set(
+      "Cache-Control",
+      "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0, s-maxage=0",
+    )
     response.headers.set("Pragma", "no-cache")
     response.headers.set("Expires", "0")
     response.headers.set("Surrogate-Control", "no-store")
+    response.headers.set("CDN-Cache-Control", "no-store")
+    response.headers.set("Vercel-Cache-Control", "no-store")
+    response.headers.set("X-Vercel-Cache", "MISS")
+    response.headers.set("X-Cache-Status", "DYNAMIC")
 
     return response
   } catch (error) {
-    console.error("Error obteniendo leaderboard detallado:", error)
+    console.error("❌ [LEADERBOARD] Error obteniendo leaderboard detallado:", error)
     return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 })
   }
 }

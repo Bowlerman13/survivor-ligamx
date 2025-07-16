@@ -2,6 +2,12 @@ import { type NextRequest, NextResponse } from "next/server"
 import { sql } from "@/lib/db"
 import { verifyToken } from "@/lib/auth"
 import { getMatchResult, getCurrentMexicoTime } from "@/lib/utils"
+import { revalidatePath, revalidateTag } from "next/cache"
+
+export const dynamic = "force-dynamic"
+export const revalidate = 0
+export const fetchCache = "force-no-store"
+export const runtime = "nodejs"
 
 export async function GET(request: NextRequest) {
   try {
@@ -15,6 +21,8 @@ export async function GET(request: NextRequest) {
     if (!decoded || decoded.role !== "superadmin") {
       return NextResponse.json({ error: "Acceso denegado" }, { status: 403 })
     }
+
+    console.log("🔄 [ADMIN] Cargando partidos desde base de datos...")
 
     const matches = await sql`
       SELECT 
@@ -35,17 +43,43 @@ export async function GET(request: NextRequest) {
       ORDER BY mw.week_number DESC, m.match_date ASC
     `
 
-    // Headers para evitar caché
-    const response = NextResponse.json(matches)
-    response.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate")
+    console.log(`✅ [ADMIN] ${matches.length} partidos cargados`)
+
+    // Respuesta con estructura consistente
+    const response = NextResponse.json({
+      success: true,
+      data: matches, // Siempre enviar como 'data'
+      count: matches.length,
+      timestamp: new Date().toISOString(),
+      server_time: getCurrentMexicoTime(),
+      cache_buster: Math.random().toString(36).substring(7),
+    })
+
+    // Headers anti-caché para Vercel Edge
+    response.headers.set(
+      "Cache-Control",
+      "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0, s-maxage=0",
+    )
     response.headers.set("Pragma", "no-cache")
     response.headers.set("Expires", "0")
     response.headers.set("Surrogate-Control", "no-store")
+    response.headers.set("CDN-Cache-Control", "no-store")
+    response.headers.set("Vercel-Cache-Control", "no-store")
+    response.headers.set("X-Vercel-Cache", "MISS")
 
     return response
   } catch (error) {
-    console.error("Error obteniendo partidos:", error)
-    return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 })
+    console.error("❌ [ADMIN] Error obteniendo partidos:", error)
+    return NextResponse.json(
+      {
+        success: false,
+        error: "Error interno del servidor",
+        data: [], // Siempre incluir data como array vacío en caso de error
+        count: 0,
+        timestamp: new Date().toISOString(),
+      },
+      { status: 500 },
+    )
   }
 }
 
@@ -65,9 +99,9 @@ export async function PUT(request: NextRequest) {
     const { matchId, homeScore, awayScore } = await request.json()
     const mexicoTime = getCurrentMexicoTime()
 
-    console.log(`🔄 Actualizando resultado: Match ${matchId} - ${homeScore}:${awayScore} at ${mexicoTime}`)
+    console.log(`🔄 [ADMIN] Actualizando resultado: Match ${matchId} - ${homeScore}:${awayScore} at ${mexicoTime}`)
 
-    // Actualizar resultado del partido con horario de Ciudad de México
+    // Actualizar resultado del partido
     await sql`
       UPDATE matches 
       SET home_score = ${homeScore}, 
@@ -94,7 +128,7 @@ export async function PUT(request: NextRequest) {
       WHERE match_id = ${matchId}
     `
 
-    console.log(`📊 Procesando ${selections.length} selecciones para el partido ${matchId}`)
+    console.log(`📊 [ADMIN] Procesando ${selections.length} selecciones para el partido ${matchId}`)
 
     let eliminatedUsers = 0
     for (const selection of selections) {
@@ -121,22 +155,45 @@ export async function PUT(request: NextRequest) {
       }
     }
 
-    console.log(`✅ Resultado actualizado: ${eliminatedUsers} usuarios eliminados`)
+    console.log(`✅ [ADMIN] Resultado actualizado: ${eliminatedUsers} usuarios eliminados`)
+
+    // Revalidar todas las rutas relacionadas
+    try {
+      revalidatePath("/api/leaderboard")
+      revalidatePath("/api/leaderboard-detailed")
+      revalidatePath("/api/selections")
+      revalidateTag("leaderboard")
+      revalidateTag("matches")
+      revalidateTag("selections")
+    } catch (revalidateError) {
+      console.log("⚠️ [ADMIN] Error en revalidación:", revalidateError)
+    }
 
     // Respuesta sin caché
     const response = NextResponse.json({
       success: true,
       message: `Resultado actualizado. ${eliminatedUsers} usuarios eliminados.`,
-      timestamp: mexicoTime,
+      timestamp: new Date().toISOString(),
+      server_time: mexicoTime,
+      eliminated_users: eliminatedUsers,
+      processed_selections: selections.length,
+      cache_buster: Math.random().toString(36).substring(7),
     })
 
-    response.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate")
+    // Headers anti-caché extremos
+    response.headers.set(
+      "Cache-Control",
+      "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0, s-maxage=0",
+    )
     response.headers.set("Pragma", "no-cache")
     response.headers.set("Expires", "0")
+    response.headers.set("Surrogate-Control", "no-store")
+    response.headers.set("CDN-Cache-Control", "no-store")
+    response.headers.set("Vercel-Cache-Control", "no-store")
 
     return response
   } catch (error) {
-    console.error("Error actualizando resultado:", error)
+    console.error("❌ [ADMIN] Error actualizando resultado:", error)
     return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 })
   }
 }

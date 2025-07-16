@@ -1,9 +1,14 @@
 import { NextResponse } from "next/server"
 import { sql } from "@/lib/db"
 
+export const dynamic = "force-dynamic"
+export const revalidate = 0
+export const fetchCache = "force-no-store"
+export const runtime = "nodejs"
+
 export async function GET() {
   try {
-    console.log("🔄 Cargando leaderboard simple...")
+    console.log("🔄 [LEADERBOARD-SIMPLE] Cargando leaderboard simple desde DB...")
 
     const leaderboard = await sql`
       SELECT 
@@ -28,22 +33,35 @@ export async function GET() {
         total_selections DESC
     `
 
-    console.log(`📊 Leaderboard simple cargado: ${leaderboard.length} usuarios`)
+    console.log(`📊 [LEADERBOARD-SIMPLE] Leaderboard simple cargado: ${leaderboard.length} usuarios`)
 
     // Respuesta sin caché
     const response = NextResponse.json({
       data: leaderboard,
       timestamp: new Date().toISOString(),
       count: leaderboard.length,
+      cache_buster: Math.random().toString(36).substring(7),
+      server_info: {
+        env: process.env.NODE_ENV,
+        region: process.env.VERCEL_REGION || "unknown",
+      },
     })
 
-    response.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate")
+    // Headers anti-caché extremos
+    response.headers.set(
+      "Cache-Control",
+      "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0, s-maxage=0",
+    )
     response.headers.set("Pragma", "no-cache")
     response.headers.set("Expires", "0")
+    response.headers.set("Surrogate-Control", "no-store")
+    response.headers.set("CDN-Cache-Control", "no-store")
+    response.headers.set("Vercel-Cache-Control", "no-store")
+    response.headers.set("X-Vercel-Cache", "MISS")
 
     return response
   } catch (error) {
-    console.error("Error obteniendo clasificación:", error)
+    console.error("❌ [LEADERBOARD-SIMPLE] Error obteniendo clasificación:", error)
     return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 })
   }
 }
