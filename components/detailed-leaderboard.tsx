@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import { Loader2, Trophy, Crown, Medal, Award, ChevronDown, ChevronUp, RefreshCw, Clock } from "lucide-react"
+import { Loader2, Trophy, Crown, Medal, Award, ChevronDown, ChevronUp, RefreshCw, Clock, Server } from "lucide-react"
 import { formatDateTime } from "@/lib/utils"
 
 interface TeamSelection {
@@ -35,6 +35,12 @@ interface LeaderboardResponse {
   data: LeaderboardEntry[]
   timestamp: string
   count: number
+  cache_buster: string
+  server_info?: {
+    env: string
+    region: string
+    deployment_id?: string
+  }
 }
 
 export function DetailedLeaderboard() {
@@ -45,6 +51,8 @@ export function DetailedLeaderboard() {
   const [expandedUser, setExpandedUser] = useState<string | null>(null)
   const [isMobile, setIsMobile] = useState(false)
   const [lastUpdate, setLastUpdate] = useState<string>("")
+  const [serverInfo, setServerInfo] = useState<any>(null)
+  const [requestCount, setRequestCount] = useState(0)
 
   useEffect(() => {
     loadDetailedLeaderboard()
@@ -57,10 +65,10 @@ export function DetailedLeaderboard() {
     checkMobile()
     window.addEventListener("resize", checkMobile)
 
-    // Auto-refresh cada 30 segundos
+    // Auto-refresh más agresivo cada 15 segundos
     const interval = setInterval(() => {
       loadDetailedLeaderboard(true)
-    }, 30000)
+    }, 15000)
 
     return () => {
       window.removeEventListener("resize", checkMobile)
@@ -68,47 +76,71 @@ export function DetailedLeaderboard() {
     }
   }, [])
 
-  const loadDetailedLeaderboard = useCallback(async (isAutoRefresh = false) => {
-    if (!isAutoRefresh) {
-      setLoading(true)
-    } else {
-      setRefreshing(true)
-    }
-    setError("")
-
-    try {
-      console.log("🔄 Cargando leaderboard detallado...")
-
-      // Agregar timestamp para evitar caché
-      const timestamp = new Date().getTime()
-      const response = await fetch(`/api/leaderboard-detailed?t=${timestamp}`, {
-        method: "GET",
-        headers: {
-          "Cache-Control": "no-cache, no-store, must-revalidate",
-          Pragma: "no-cache",
-          Expires: "0",
-        },
-      })
-
-      if (response.ok) {
-        const result: LeaderboardResponse = await response.json()
-        console.log(`✅ Leaderboard cargado: ${result.count} usuarios at ${result.timestamp}`)
-
-        setLeaderboard(result.data)
-        setLastUpdate(result.timestamp)
+  const loadDetailedLeaderboard = useCallback(
+    async (isAutoRefresh = false) => {
+      if (!isAutoRefresh) {
+        setLoading(true)
       } else {
-        throw new Error("Error cargando clasificación detallada")
+        setRefreshing(true)
       }
-    } catch (err: any) {
-      console.error("❌ Error cargando leaderboard:", err)
-      setError(err.message)
-    } finally {
-      setLoading(false)
-      setRefreshing(false)
-    }
-  }, [])
+      setError("")
+
+      try {
+        const newRequestCount = requestCount + 1
+        setRequestCount(newRequestCount)
+
+        console.log(`🔄 [${newRequestCount}] Cargando leaderboard detallado...`)
+
+        // Cache busting extremo
+        const timestamp = new Date().getTime()
+        const randomId = Math.random().toString(36).substring(7)
+        const url = `/api/leaderboard-detailed?t=${timestamp}&r=${randomId}&req=${newRequestCount}`
+
+        const response = await fetch(url, {
+          method: "GET",
+          headers: {
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            Pragma: "no-cache",
+            Expires: "0",
+            "X-Requested-With": "XMLHttpRequest",
+            "X-Cache-Buster": randomId,
+          },
+          // Forzar no usar caché del navegador
+          cache: "no-store",
+        })
+
+        console.log(`📡 [${newRequestCount}] Response status:`, response.status)
+        console.log(`📡 [${newRequestCount}] Response headers:`, Object.fromEntries(response.headers.entries()))
+
+        if (response.ok) {
+          const result: LeaderboardResponse = await response.json()
+          console.log(`✅ [${newRequestCount}] Leaderboard cargado: ${result.count} usuarios`)
+          console.log(`📊 [${newRequestCount}] Server timestamp: ${result.timestamp}`)
+          console.log(`🔧 [${newRequestCount}] Cache buster: ${result.cache_buster}`)
+
+          if (result.server_info) {
+            console.log(`🖥️ [${newRequestCount}] Server info:`, result.server_info)
+            setServerInfo(result.server_info)
+          }
+
+          setLeaderboard(result.data)
+          setLastUpdate(result.timestamp)
+        } else {
+          throw new Error(`HTTP ${response.status}: Error cargando clasificación detallada`)
+        }
+      } catch (err: any) {
+        console.error(`❌ [${requestCount}] Error cargando leaderboard:`, err)
+        setError(err.message)
+      } finally {
+        setLoading(false)
+        setRefreshing(false)
+      }
+    },
+    [requestCount],
+  )
 
   const handleManualRefresh = () => {
+    console.log("🔄 Manual refresh triggered")
     loadDetailedLeaderboard()
   }
 
@@ -200,7 +232,7 @@ export function DetailedLeaderboard() {
       <Card>
         <CardContent className="flex items-center justify-center p-8">
           <Loader2 className="h-8 w-8 animate-spin" />
-          <span className="ml-2">Cargando clasificación...</span>
+          <span className="ml-2">Cargando clasificación... (Req #{requestCount})</span>
         </CardContent>
       </Card>
     )
@@ -210,11 +242,16 @@ export function DetailedLeaderboard() {
     return (
       <Alert variant="destructive">
         <AlertDescription>
-          {error}
-          <Button variant="outline" size="sm" onClick={handleManualRefresh} className="ml-2 bg-transparent">
-            <RefreshCw className="h-4 w-4 mr-1" />
-            Reintentar
-          </Button>
+          <div className="space-y-2">
+            <div>{error}</div>
+            <div className="text-xs">
+              Request #{requestCount} - {new Date().toLocaleTimeString()}
+            </div>
+            <Button variant="outline" size="sm" onClick={handleManualRefresh} className="bg-transparent">
+              <RefreshCw className="h-4 w-4 mr-1" />
+              Reintentar
+            </Button>
+          </div>
         </AlertDescription>
       </Alert>
     )
@@ -224,7 +261,7 @@ export function DetailedLeaderboard() {
   if (isMobile) {
     return (
       <div className="space-y-4">
-        {/* Header con refresh */}
+        {/* Header con refresh y debug info */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Trophy className="h-5 w-5 text-green-600" />
@@ -232,18 +269,24 @@ export function DetailedLeaderboard() {
             {refreshing && <Loader2 className="h-4 w-4 animate-spin" />}
           </div>
           <Button variant="outline" size="sm" onClick={handleManualRefresh} disabled={refreshing}>
-            <RefreshCw className={`h-4 w-4 mr-1 ${refreshing ? "animate-spin" : ""}`} />
-            Actualizar
+            <RefreshCw className={`h-4 w-4 mr-1 ${refreshing ? "animate-spin" : ""}`} />#{requestCount}
           </Button>
         </div>
 
-        {/* Timestamp de última actualización */}
-        {lastUpdate && (
-          <div className="text-xs text-gray-500 flex items-center gap-1">
+        {/* Debug info */}
+        <div className="text-xs text-gray-500 space-y-1">
+          <div className="flex items-center gap-1">
             <Clock className="h-3 w-3" />
-            Última actualización: {formatDateTime(lastUpdate)} (CDMX)
+            Última actualización: {lastUpdate ? formatDateTime(lastUpdate) : "Nunca"} (CDMX)
           </div>
-        )}
+          {serverInfo && (
+            <div className="flex items-center gap-1">
+              <Server className="h-3 w-3" />
+              Servidor: {serverInfo.env} | {serverInfo.region} | Req #{requestCount}
+            </div>
+          )}
+          <div>Auto-refresh cada 15 segundos</div>
+        </div>
 
         {/* Supervivientes */}
         <Card>
@@ -316,10 +359,6 @@ export function DetailedLeaderboard() {
                                       src={selection.team_logo || "/placeholder.svg?height=20&width=20&query=team+logo"}
                                       alt={selection.team_short_name}
                                       className="w-4 h-4 object-contain"
-                                      onError={(e) => {
-                                        const target = e.target as HTMLImageElement
-                                        target.src = "/placeholder.svg?height=20&width=20"
-                                      }}
                                     />
                                     {/* Indicador de puntos */}
                                     {selection.result === "win" && (
@@ -407,10 +446,6 @@ export function DetailedLeaderboard() {
                                       src={selection.team_logo || "/placeholder.svg?height=20&width=20&query=team+logo"}
                                       alt={selection.team_short_name}
                                       className="w-4 h-4 object-contain"
-                                      onError={(e) => {
-                                        const target = e.target as HTMLImageElement
-                                        target.src = "/placeholder.svg?height=20&width=20"
-                                      }}
                                     />
                                     {/* Indicadores */}
                                     {selection.result === "win" && (
@@ -445,36 +480,53 @@ export function DetailedLeaderboard() {
           </Card>
         )}
 
-        {/* Leyenda móvil */}
+        {/* Debug y leyenda */}
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-sm">Leyenda</CardTitle>
+            <CardTitle className="text-sm">Debug Info & Leyenda</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 gap-3 text-xs">
-              <div className="flex items-center gap-2">
-                <div className="w-5 h-5 bg-green-100 border-2 border-green-300 rounded relative">
-                  <div className="absolute -top-1 -right-1 w-2 h-2 bg-green-500 text-white text-xs rounded-full flex items-center justify-center font-bold">
-                    3
-                  </div>
+            <div className="space-y-3 text-xs">
+              <div className="p-2 bg-gray-100 rounded">
+                <div>
+                  <strong>Requests:</strong> #{requestCount}
                 </div>
-                <span>Victoria (3 pts)</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-5 h-5 bg-blue-100 border-2 border-blue-300 rounded relative">
-                  <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 text-white text-xs rounded-full flex items-center justify-center font-bold">
-                    1
-                  </div>
+                <div>
+                  <strong>Última actualización:</strong>{" "}
+                  {lastUpdate ? new Date(lastUpdate).toLocaleTimeString() : "Nunca"}
                 </div>
-                <span>Empate (1 pt)</span>
+                {serverInfo && (
+                  <div>
+                    <strong>Servidor:</strong> {serverInfo.env} | {serverInfo.region}
+                  </div>
+                )}
               </div>
-              <div className="flex items-center gap-2">
-                <div className="w-5 h-5 bg-red-100 border-2 border-red-300 rounded"></div>
-                <span>Derrota (0 pts)</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-5 h-5 bg-yellow-100 border-2 border-yellow-300 rounded"></div>
-                <span>Pendiente</span>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-5 h-5 bg-green-100 border-2 border-green-300 rounded relative">
+                    <div className="absolute -top-1 -right-1 w-2 h-2 bg-green-500 text-white text-xs rounded-full flex items-center justify-center font-bold">
+                      3
+                    </div>
+                  </div>
+                  <span>Victoria (3 pts)</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-5 h-5 bg-blue-100 border-2 border-blue-300 rounded relative">
+                    <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 text-white text-xs rounded-full flex items-center justify-center font-bold">
+                      1
+                    </div>
+                  </div>
+                  <span>Empate (1 pt)</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-5 h-5 bg-red-100 border-2 border-red-300 rounded"></div>
+                  <span>Derrota (0 pts)</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-5 h-5 bg-yellow-100 border-2 border-yellow-300 rounded"></div>
+                  <span>Pendiente</span>
+                </div>
               </div>
             </div>
           </CardContent>
@@ -483,30 +535,33 @@ export function DetailedLeaderboard() {
     )
   }
 
-  // Vista desktop (código original con mejoras)
+  // Vista desktop con debug info mejorada
   return (
     <div className="space-y-6">
-      {/* Header con refresh */}
+      {/* Header con refresh y debug info */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Trophy className="h-5 w-5 text-green-600" />
           <span className="font-semibold">Clasificación Detallada</span>
           {refreshing && <Loader2 className="h-4 w-4 animate-spin" />}
         </div>
-        <Button variant="outline" size="sm" onClick={handleManualRefresh} disabled={refreshing}>
-          <RefreshCw className={`h-4 w-4 mr-1 ${refreshing ? "animate-spin" : ""}`} />
-          Actualizar
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={handleManualRefresh} disabled={refreshing}>
+            <RefreshCw className={`h-4 w-4 mr-1 ${refreshing ? "animate-spin" : ""}`} />
+            Actualizar
+          </Button>
+        </div>
       </div>
 
-      {/* Timestamp de última actualización */}
-      {lastUpdate && (
-        <div className="text-xs text-gray-500 flex items-center gap-1">
+      {/* Debug info detallada */}
+      <div className="text-xs text-gray-500 space-y-1 p-3 bg-gray-50 rounded-lg">
+        <div className="flex items-center gap-1">
           <Clock className="h-3 w-3" />
-          Última actualización: {formatDateTime(lastUpdate)} (CDMX)
-        </div>
-      )}
+          Última actualización: {lastUpdate ? formatDateTime(lastUpdate) : "Nunca"} (CDMX)
+        </div>       
+      </div>
 
+      {/* Resto del componente igual que antes... */}
       {/* Supervivientes */}
       <Card>
         <CardHeader>
@@ -516,7 +571,7 @@ export function DetailedLeaderboard() {
           </CardTitle>
           <CardDescription>
             Jugadores activos ordenados por: 1) Última jornada viva, 2) Puntos totales, 3) Selecciones correctas
-            (Horario de Ciudad de México)
+            (Horario de Ciudad de México) - Request #{requestCount}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -762,10 +817,10 @@ export function DetailedLeaderboard() {
         </Card>
       )}
 
-      {/* Leyenda actualizada */}
+      {/* Leyenda actualizada con debug info */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-sm">Leyenda</CardTitle>
+          <CardTitle className="text-sm">Informacion</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
@@ -803,7 +858,7 @@ export function DetailedLeaderboard() {
             </div>
           </div>
           <div className="mt-4 p-3 bg-blue-50 rounded-lg">
-            <h4 className="font-semibold text-blue-800 mb-2">📊 Sistema de Puntuación y Desempate:</h4>
+            <h4 className="font-semibold text-blue-800 mb-2">📊 Sistema de Puntuación</h4>
             <ul className="text-xs text-blue-700 space-y-1">
               <li>
                 <strong>1er criterio:</strong> Quien llegue más lejos (última jornada viva)
@@ -817,10 +872,7 @@ export function DetailedLeaderboard() {
               <li>
                 <strong>Puntuación:</strong> Victoria = 3 pts, Empate = 1 pt, Derrota = 0 pts
               </li>
-              <li>
-                <strong>Actualización:</strong> Los datos se actualizan automáticamente cada 30 segundos
-              </li>
-            </ul>
+                        </ul>
           </div>
         </CardContent>
       </Card>

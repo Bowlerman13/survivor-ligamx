@@ -60,18 +60,46 @@ export function AdminPanel({ token }: AdminPanelProps) {
 
   const loadMatches = async () => {
     try {
-      const response = await fetch("/api/admin/matches", {
+      console.log("🔄 [ADMIN-PANEL] Cargando partidos...")
+
+      // Cache busting para admin panel
+      const timestamp = new Date().getTime()
+      const response = await fetch(`/api/admin/matches?t=${timestamp}`, {
         headers: {
           Authorization: `Bearer ${token}`,
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+          Pragma: "no-cache",
         },
+        cache: "no-store",
       })
 
+      console.log("📡 [ADMIN-PANEL] Response status:", response.status)
+
       if (response.ok) {
-        const data = await response.json()
-        setMatches(data)
+        const result = await response.json()
+        console.log("📊 [ADMIN-PANEL] Response data:", result)
+
+        // Verificar si la respuesta tiene la estructura esperada
+        if (result && result.data && Array.isArray(result.data)) {
+          console.log(`✅ [ADMIN-PANEL] ${result.data.length} partidos cargados`)
+          setMatches(result.data)
+        } else if (Array.isArray(result)) {
+          // Si la respuesta es directamente un array
+          console.log(`✅ [ADMIN-PANEL] ${result.length} partidos cargados (array directo)`)
+          setMatches(result)
+        } else {
+          console.error("❌ [ADMIN-PANEL] Estructura de respuesta inesperada:", result)
+          setMatches([])
+          setError("Estructura de datos inesperada del servidor")
+        }
+      } else {
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Error cargando partidos")
       }
-    } catch (err) {
-      setError("Error cargando partidos")
+    } catch (err: any) {
+      console.error("❌ [ADMIN-PANEL] Error cargando partidos:", err)
+      setError(err.message)
+      setMatches([]) // Asegurar que matches sea un array vacío en caso de error
     } finally {
       setLoading(false)
     }
@@ -83,11 +111,14 @@ export function AdminPanel({ token }: AdminPanelProps) {
     setSuccess("")
 
     try {
+      console.log(`🔄 [ADMIN-PANEL] Actualizando resultado: ${matchId} - ${homeScore}:${awayScore}`)
+
       const response = await fetch("/api/admin/matches", {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
+          "Cache-Control": "no-cache, no-store, must-revalidate",
         },
         body: JSON.stringify({
           matchId,
@@ -97,12 +128,20 @@ export function AdminPanel({ token }: AdminPanelProps) {
       })
 
       if (response.ok) {
-        setSuccess("Resultado actualizado correctamente")
-        loadMatches()
+        const result = await response.json()
+        console.log("✅ [ADMIN-PANEL] Resultado actualizado:", result)
+        setSuccess(result.message || "Resultado actualizado correctamente")
+
+        // Recargar partidos después de actualizar
+        setTimeout(() => {
+          loadMatches()
+        }, 1000)
       } else {
-        throw new Error("Error actualizando resultado")
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Error actualizando resultado")
       }
     } catch (err: any) {
+      console.error("❌ [ADMIN-PANEL] Error actualizando resultado:", err)
       setError(err.message)
     } finally {
       setSubmitting(null)
@@ -138,15 +177,18 @@ export function AdminPanel({ token }: AdminPanelProps) {
     }
   }
 
-  const pendingMatches = matches.filter((m) => m.status !== "finished" && m.is_active).length
-  const finishedMatches = matches.filter((m) => m.status === "finished").length
-  const inactiveMatches = matches.filter((m) => !m.is_active).length
+  // Asegurar que matches sea un array antes de usar filter
+  const safeMatches = Array.isArray(matches) ? matches : []
+  const pendingMatches = safeMatches.filter((m) => m.status !== "finished" && m.is_active).length
+  const finishedMatches = safeMatches.filter((m) => m.status === "finished").length
+  const inactiveMatches = safeMatches.filter((m) => !m.is_active).length
 
   if (loading) {
     return (
       <Card>
         <CardContent className="flex items-center justify-center p-8">
           <Loader2 className="h-8 w-8 animate-spin" />
+          <span className="ml-2">Cargando panel de administración...</span>
         </CardContent>
       </Card>
     )
@@ -159,7 +201,7 @@ export function AdminPanel({ token }: AdminPanelProps) {
         <Card>
           <CardContent className="p-3 md:p-4 text-center">
             <BarChart3 className="h-6 w-6 md:h-8 md:w-8 text-blue-500 mx-auto mb-2" />
-            <div className="text-lg md:text-2xl font-bold">{matches.length}</div>
+            <div className="text-lg md:text-2xl font-bold">{safeMatches.length}</div>
             <div className="text-xs md:text-sm text-gray-600">Total Partidos</div>
           </CardContent>
         </Card>
@@ -189,9 +231,25 @@ export function AdminPanel({ token }: AdminPanelProps) {
         </Card>
       </div>
 
+      {/* Debug info */}
+      <div className="text-xs text-gray-500 p-2 bg-gray-50 rounded">
+        <div>
+          🔧 Debug: {safeMatches.length} partidos cargados | Tipo: {typeof matches} | Es Array:{" "}
+          {Array.isArray(matches) ? "Sí" : "No"}
+        </div>
+        <div>
+          📊 Estadísticas: {finishedMatches} finalizados, {pendingMatches} pendientes, {inactiveMatches} inactivos
+        </div>
+      </div>
+
       {error && (
         <Alert variant="destructive">
-          <AlertDescription className="text-sm">{error}</AlertDescription>
+          <AlertDescription className="text-sm">
+            <div>{error}</div>
+            <Button variant="outline" size="sm" onClick={loadMatches} className="mt-2 bg-transparent">
+              Reintentar
+            </Button>
+          </AlertDescription>
         </Alert>
       )}
 
@@ -311,108 +369,118 @@ export function AdminPanel({ token }: AdminPanelProps) {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="space-y-3 md:space-y-4">
-                {matches.map((match) => (
-                  <div key={match.id} className="border rounded-lg p-3 md:p-4">
-                    <div className="flex items-center justify-between mb-3 md:mb-4">
-                      <div className="flex items-center gap-2 md:gap-4">
-                        <div className="text-center">
-                          <img
-                            src={match.home_logo || "/placeholder.svg?height=40&width=40&query=team+logo"}
-                            alt={match.home_team_name}
-                            className="w-6 h-6 md:w-8 md:h-8 mx-auto mb-1 object-contain"
-                            onError={(e) => {
-                              const target = e.target as HTMLImageElement
-                              target.src = "/placeholder.svg?height=40&width=40"
-                            }}
+              {safeMatches.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">
+                  <div className="text-lg mb-2">No hay partidos disponibles</div>
+                  <div className="text-sm">Crea partidos en la pestaña "Partidos" primero</div>
+                  <Button variant="outline" onClick={loadMatches} className="mt-4 bg-transparent">
+                    Recargar Partidos
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-3 md:space-y-4">
+                  {safeMatches.map((match) => (
+                    <div key={match.id} className="border rounded-lg p-3 md:p-4">
+                      <div className="flex items-center justify-between mb-3 md:mb-4">
+                        <div className="flex items-center gap-2 md:gap-4">
+                          <div className="text-center">
+                            <img
+                              src={match.home_logo || "/placeholder.svg?height=40&width=40&query=team+logo"}
+                              alt={match.home_team_name}
+                              className="w-6 h-6 md:w-8 md:h-8 mx-auto mb-1 object-contain"
+                              onError={(e) => {
+                                const target = e.target as HTMLImageElement
+                                target.src = "/placeholder.svg?height=40&width=40"
+                              }}
+                            />
+                            <div className="text-xs font-medium">{match.home_short_name}</div>
+                          </div>
+
+                          <div className="text-center">
+                            <div className="text-sm md:text-lg font-bold">VS</div>
+                            <div className="text-xs text-gray-500">J{match.week_number}</div>
+                          </div>
+
+                          <div className="text-center">
+                            <img
+                              src={match.away_logo || "/placeholder.svg?height=40&width=40&query=team+logo"}
+                              alt={match.away_team_name}
+                              className="w-6 h-6 md:w-8 md:h-8 mx-auto mb-1 object-contain"
+                              onError={(e) => {
+                                const target = e.target as HTMLImageElement
+                                target.src = "/placeholder.svg?height=40&width=40"
+                              }}
+                            />
+                            <div className="text-xs font-medium">{match.away_short_name}</div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">{getStatusBadge(match)}</div>
+                      </div>
+
+                      <div className="flex flex-col md:flex-row items-stretch md:items-center gap-3 md:gap-4">
+                        <div className="flex items-center gap-2 justify-center">
+                          <Input
+                            type="number"
+                            placeholder="0"
+                            className="w-12 md:w-16 text-center text-sm"
+                            defaultValue={match.home_score || ""}
+                            id={`home-${match.id}`}
+                            min="0"
+                            disabled={!match.is_active}
                           />
-                          <div className="text-xs font-medium">{match.home_short_name}</div>
-                        </div>
-
-                        <div className="text-center">
-                          <div className="text-sm md:text-lg font-bold">VS</div>
-                          <div className="text-xs text-gray-500">J{match.week_number}</div>
-                        </div>
-
-                        <div className="text-center">
-                          <img
-                            src={match.away_logo || "/placeholder.svg?height=40&width=40&query=team+logo"}
-                            alt={match.away_team_name}
-                            className="w-6 h-6 md:w-8 md:h-8 mx-auto mb-1 object-contain"
-                            onError={(e) => {
-                              const target = e.target as HTMLImageElement
-                              target.src = "/placeholder.svg?height=40&width=40"
-                            }}
+                          <span className="text-sm font-medium">-</span>
+                          <Input
+                            type="number"
+                            placeholder="0"
+                            className="w-12 md:w-16 text-center text-sm"
+                            defaultValue={match.away_score || ""}
+                            id={`away-${match.id}`}
+                            min="0"
+                            disabled={!match.is_active}
                           />
-                          <div className="text-xs font-medium">{match.away_short_name}</div>
                         </div>
+
+                        <Button
+                          onClick={() => {
+                            const homeInput = document.getElementById(`home-${match.id}`) as HTMLInputElement
+                            const awayInput = document.getElementById(`away-${match.id}`) as HTMLInputElement
+                            const homeScore = Number.parseInt(homeInput.value) || 0
+                            const awayScore = Number.parseInt(awayInput.value) || 0
+                            updateMatchResult(match.id, homeScore, awayScore)
+                          }}
+                          disabled={submitting === match.id || !match.is_active}
+                          size="sm"
+                          className="w-full md:w-auto"
+                        >
+                          {submitting === match.id && <Loader2 className="mr-2 h-3 w-3 md:h-4 md:w-4 animate-spin" />}
+                          <Save className="mr-2 h-3 w-3 md:h-4 md:w-4" />
+                          Guardar
+                        </Button>
                       </div>
 
-                      <div className="flex items-center gap-2">{getStatusBadge(match)}</div>
-                    </div>
-
-                    <div className="flex flex-col md:flex-row items-stretch md:items-center gap-3 md:gap-4">
-                      <div className="flex items-center gap-2 justify-center">
-                        <Input
-                          type="number"
-                          placeholder="0"
-                          className="w-12 md:w-16 text-center text-sm"
-                          defaultValue={match.home_score || ""}
-                          id={`home-${match.id}`}
-                          min="0"
-                          disabled={!match.is_active}
-                        />
-                        <span className="text-sm font-medium">-</span>
-                        <Input
-                          type="number"
-                          placeholder="0"
-                          className="w-12 md:w-16 text-center text-sm"
-                          defaultValue={match.away_score || ""}
-                          id={`away-${match.id}`}
-                          min="0"
-                          disabled={!match.is_active}
-                        />
-                      </div>
-
-                      <Button
-                        onClick={() => {
-                          const homeInput = document.getElementById(`home-${match.id}`) as HTMLInputElement
-                          const awayInput = document.getElementById(`away-${match.id}`) as HTMLInputElement
-                          const homeScore = Number.parseInt(homeInput.value) || 0
-                          const awayScore = Number.parseInt(awayInput.value) || 0
-                          updateMatchResult(match.id, homeScore, awayScore)
-                        }}
-                        disabled={submitting === match.id || !match.is_active}
-                        size="sm"
-                        className="w-full md:w-auto"
-                      >
-                        {submitting === match.id && <Loader2 className="mr-2 h-3 w-3 md:h-4 md:w-4 animate-spin" />}
-                        <Save className="mr-2 h-3 w-3 md:h-4 md:w-4" />
-                        Guardar
-                      </Button>
-                    </div>
-
-                    <div className="mt-3 space-y-1">
-                      <div className="text-xs text-gray-500">
-                        {match.home_team_name} vs {match.away_team_name}
-                      </div>
-                      <div className="text-xs text-blue-600 flex items-center gap-1">
-                        <Clock className="h-3 w-3" />
-                        {formatDateTime(match.match_date)} (CDMX)
-                      </div>
-                      <div className="text-xs text-green-600 flex items-center gap-1">
-                        <MapPin className="h-3 w-3" />
-                        {match.home_stadium}
-                      </div>
-                      {!match.is_active && (
-                        <div className="text-xs text-red-600 font-medium">
-                          ⚠️ Partido inactivo - No disponible para selecciones
+                      <div className="mt-3 space-y-1">
+                        <div className="text-xs text-gray-500">
+                          {match.home_team_name} vs {match.away_team_name}
                         </div>
-                      )}
+                        <div className="text-xs text-blue-600 flex items-center gap-1">
+                          <Clock className="h-3 w-3" />
+                          {formatDateTime(match.match_date)} (CDMX)
+                        </div>
+                        <div className="text-xs text-green-600 flex items-center gap-1">
+                          <MapPin className="h-3 w-3" />
+                          {match.home_stadium}
+                        </div>
+                        {!match.is_active && (
+                          <div className="text-xs text-red-600 font-medium">
+                            ⚠️ Partido inactivo - No disponible para selecciones
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
