@@ -4,13 +4,14 @@ import { useState, useEffect } from "react"
 import { AuthForm } from "../components/auth-form"
 import { TeamSelector } from "../components/team-selector"
 import { UserSelections } from "../components/user-selections"
+import { WeeklyMatches } from "../components/weekly-matches"
 import { Leaderboard } from "../components/leaderboard"
 import { AdminPanel } from "../components/admin-panel"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
-import { LogOut, Trophy, Target, BarChart3, Crown } from "lucide-react"
+import { LogOut, Trophy, Target, BarChart3, Crown, Lock, Calendar } from "lucide-react"
 
 interface User {
   id: string
@@ -177,10 +178,14 @@ export default function Home() {
           <Tabs defaultValue="select" className="w-full">
             {isMobile ? (
               // Vista móvil - Tabs compactas
-              <TabsList className="grid w-full grid-cols-3 mb-4">
+              <TabsList className="grid w-full grid-cols-4 mb-4">
                 <TabsTrigger value="select" className="flex items-center gap-1 text-xs">
                   <Target className="h-3 w-3" />
                   Selección
+                </TabsTrigger>
+                 <TabsTrigger value="weekly-matches" className="flex items-center gap-1 text-xs">
+                  <Calendar className="h-3 w-3" />
+                  Jornada
                 </TabsTrigger>
                 <TabsTrigger value="selections" className="flex items-center gap-1 text-xs">
                   <BarChart3 className="h-3 w-3" />
@@ -193,10 +198,14 @@ export default function Home() {
               </TabsList>
             ) : (
               // Vista desktop - Tabs normales
-              <TabsList className="grid w-full grid-cols-3 mb-6">
+              <TabsList className="grid w-full grid-cols-4 mb-6">
                 <TabsTrigger value="select" className="flex items-center gap-2">
                   <Target className="h-4 w-4" />
                   Hacer Selección
+                </TabsTrigger>
+                <TabsTrigger value="weekly" className="flex items-center gap-2">
+                  <Calendar className="h-4 w-4" />
+                  Jornada Semanal
                 </TabsTrigger>
                 <TabsTrigger value="selections" className="flex items-center gap-2">
                   <BarChart3 className="h-4 w-4" />
@@ -228,10 +237,14 @@ export default function Home() {
               )}
             </TabsContent>
 
+             <TabsContent value="weekly" className="mt-4 md:mt-6">
+              <WeeklyMatches />
+            </TabsContent>
+
             <TabsContent value="selections" className="mt-4 md:mt-6">
               <UserSelections token={token} key={`selections-${refreshKey}`} />
             </TabsContent>
-
+            
             <TabsContent value="leaderboard" className="mt-4 md:mt-6">
               <Leaderboard key={`leaderboard-${refreshKey}`} />
             </TabsContent>
