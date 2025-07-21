@@ -308,7 +308,7 @@ export function MatchGenerator({ token }: MatchGeneratorProps) {
     }
 
     switch (match.status) {
-      case "scheduled":
+      case "Programado":
         return (
           <Badge variant="secondary" className="text-xs">
             <Play className="h-3 w-3 mr-1" />
