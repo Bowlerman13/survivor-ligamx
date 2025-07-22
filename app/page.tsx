@@ -203,7 +203,7 @@ export default function Home() {
                   <Target className="h-4 w-4" />
                   Hacer Selección
                 </TabsTrigger>
-                <TabsTrigger value="weekly" className="flex items-center gap-2">
+                <TabsTrigger value="weekly-matches" className="flex items-center gap-2">
                   <Calendar className="h-4 w-4" />
                   Jornada Semanal
                 </TabsTrigger>
@@ -237,7 +237,7 @@ export default function Home() {
               )}
             </TabsContent>
 
-             <TabsContent value="weekly" className="mt-4 md:mt-6">
+             <TabsContent value="weekly-matches" className="mt-4 md:mt-6">
               <WeeklyMatches />
             </TabsContent>
 
